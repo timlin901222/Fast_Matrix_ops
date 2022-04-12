@@ -4,4 +4,5 @@ A light weight matrix multiply program written in C. Used advanced techniques su
 - SIMD intrinsics (Single instruction multiple data) 
 - advanced algorithms
 - cache blocking 
+
 to achieve a 70x speedup on matrix multiply and 720x speedup on matrix power.
