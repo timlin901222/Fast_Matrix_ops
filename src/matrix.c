@@ -1,3 +1,4 @@
+
 #include "matrix.h"
 #include <stddef.h>
 #include <stdio.h>
@@ -49,6 +50,7 @@ void rand_matrix(matrix *result, unsigned int seed, double low, double high) {
  */
 double get(matrix *mat, int row, int col) {
     // Task 1.1 TODO
+    return mat->data[row*mat->cols+col];
 }
 
 /*
@@ -57,6 +59,8 @@ double get(matrix *mat, int row, int col) {
  */
 void set(matrix *mat, int row, int col, double val) {
     // Task 1.1 TODO
+    mat->data[row*mat->cols+col] = val;
+    return;
 }
 
 /*
@@ -79,6 +83,22 @@ int allocate_matrix(matrix **mat, int rows, int cols) {
     // 6. Set the `ref_cnt` field to 1.
     // 7. Store the address of the allocated matrix struct at the location `mat` is pointing at.
     // 8. Return 0 upon success.
+    if (rows<=0||cols<=0)
+        return -1;
+    matrix *result = (matrix *)malloc(sizeof(matrix));
+    if (result == NULL)
+        return -2;
+    result->data = (double *)calloc(rows * cols, sizeof(double));
+   
+    result->rows = rows;
+    result->cols = cols;
+    result->parent = NULL;
+    result->ref_cnt = 1;
+
+    *mat = result;
+    return 0;
+
+    
 }
 
 /*
@@ -92,6 +112,19 @@ void deallocate_matrix(matrix *mat) {
     // 1. If the matrix pointer `mat` is NULL, return.
     // 2. If `mat` has no parent: decrement its `ref_cnt` field by 1. If the `ref_cnt` field becomes 0, then free `mat` and its `data` field.
     // 3. Otherwise, recursively call `deallocate_matrix` on `mat`'s parent, then free `mat`.
+    if (mat == NULL)
+        return;
+    if (mat->parent == NULL) {
+        mat->ref_cnt-=1;
+        if (mat->ref_cnt == 0) {
+            free(mat->data);
+            free(mat);
+        }
+    }
+    else {
+        deallocate_matrix(mat->parent);
+        free(mat);
+    }
 }
 
 /*
@@ -117,6 +150,20 @@ int allocate_matrix_ref(matrix **mat, matrix *from, int offset, int rows, int co
     // 6. Increment the `ref_cnt` field of the `from` struct by 1.
     // 7. Store the address of the allocated matrix struct at the location `mat` is pointing at.
     // 8. Return 0 upon success.
+    if (rows<=0||cols<=0)
+        return -1;
+    matrix *result = (matrix *)malloc(sizeof(matrix));
+    if (result == NULL)
+        return -2;
+    result->data = from->data+offset;
+    result->rows = rows;
+    result->cols = cols;
+    result->parent = from;
+    from->ref_cnt += 1;
+
+    *mat = result;
+    return 0;
+
 }
 
 /*
@@ -124,6 +171,22 @@ int allocate_matrix_ref(matrix **mat, matrix *from, int offset, int rows, int co
  */
 void fill_matrix(matrix *mat, double val) {
     // Task 1.5 TODO
+    /*
+    for (int i=0; i<mat->rows*mat->cols; i++) {
+        mat->data[i] = val;
+    }
+    */
+
+    #pragma omp parallel for
+    for (int i=0; i<mat->rows*mat->cols-(mat->rows*mat->cols%4); i+=4) {
+        __m256d vec1;
+        vec1 = _mm256_set1_pd (val);
+        _mm256_storeu_pd (mat->data+i, vec1);
+    }
+    #pragma omp parallel for
+    for (int i=mat->rows*mat->cols-(mat->rows*mat->cols%4); i<mat->rows*mat->cols; i++){
+        mat->data[i]=val;
+    }
 }
 
 /*
@@ -133,6 +196,40 @@ void fill_matrix(matrix *mat, double val) {
  */
 int abs_matrix(matrix *result, matrix *mat) {
     // Task 1.5 TODO
+    #pragma omp parallel for
+    for (int i=0; i<result->rows*result->cols-(result->rows*result->cols%4); i+=4) {
+        __m256d vec1;
+        __m256d vec2;
+        __m256d negvec;
+        __m256d resvec;
+        vec1 = _mm256_loadu_pd ((__m256d *)(mat->data+i));
+        vec2 = _mm256_set_pd(-1, -1, -1, -1);
+        negvec = _mm256_mul_pd (vec1, vec2);
+        resvec = _mm256_max_pd (vec1, negvec);
+        _mm256_storeu_pd (result->data+i, resvec);
+    }
+
+    #pragma omp parallel for
+    for (int i=result->rows*result->cols-(result->rows*result->cols%4); i<result->rows*result->cols; i++){
+        if (mat->data[i]<0){
+        result->data[i]=mat->data[i]*-1;
+        }
+        else{
+          result->data[i]=mat->data[i];
+        }
+    }
+    /*
+    for (int i=0; i<mat->rows*mat->cols; i++) {
+        if (mat->data[i]<0){
+        result->data[i]=mat->data[i]*-1;
+        }
+        else{
+          result->data[i]=mat->data[i];
+        }
+    }
+    */
+    return 0;
+
 }
 
 /*
@@ -143,6 +240,7 @@ int abs_matrix(matrix *result, matrix *mat) {
  */
 int neg_matrix(matrix *result, matrix *mat) {
     // Task 1.5 TODO
+    return 0;
 }
 
 /*
@@ -153,6 +251,23 @@ int neg_matrix(matrix *result, matrix *mat) {
  */
 int add_matrix(matrix *result, matrix *mat1, matrix *mat2) {
     // Task 1.5 TODO
+    #pragma omp parallel for
+    for (int i=0; i<result->rows*result->cols-(result->rows*result->cols%4); i+=4) {
+        __m256d vec1;
+        __m256d vec2;
+        __m256d resvec;
+        vec1 = _mm256_loadu_pd ((__m256d *)(mat1->data+i));
+        vec2 = _mm256_loadu_pd ((__m256d *)(mat2->data+i));
+        resvec = _mm256_add_pd (vec1, vec2);
+        _mm256_storeu_pd (result->data+i, resvec);
+    }
+    #pragma omp parallel for
+    for (int i=result->rows*result->cols-(result->rows*result->cols%4); i<result->rows*result->cols; i++){
+        result->data[i]=mat1->data[i]+mat2->data[i];
+    }
+
+    return 0;
+
 }
 
 /*
@@ -164,6 +279,7 @@ int add_matrix(matrix *result, matrix *mat1, matrix *mat2) {
  */
 int sub_matrix(matrix *result, matrix *mat1, matrix *mat2) {
     // Task 1.5 TODO
+    return 0;
 }
 
 /*
@@ -175,6 +291,98 @@ int sub_matrix(matrix *result, matrix *mat1, matrix *mat2) {
  */
 int mul_matrix(matrix *result, matrix *mat1, matrix *mat2) {
     // Task 1.6 TODO
+    
+    
+    
+    matrix *transpose = NULL;
+    allocate_matrix(&transpose, mat2->cols, mat2->rows);
+    int blocksize=4;
+    #pragma omp parallel for collapse(4)
+    for (int x = 0; x < mat2->cols; x+=blocksize) {
+       for (int y = 0; y < mat2->rows; y+=blocksize){
+           for(int i = 0; i < blocksize; i++){
+               for(int j = 0; j < blocksize; j++){
+                    if((y+j>=mat2->rows) || (x+i>=mat2->cols)) {
+                        
+                    }
+                    else {
+                        transpose->data[(y+j)+(x+i)*mat2->rows] = mat2->data[(x+i)+(y+j)*mat2->cols]; // potential issues here
+                    }
+               }
+           }
+       }
+   }
+   // transpose_blocking(mat2->rows, mat2->cols, 4, transpose, mat2);
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < mat1->rows; i++) {
+        for (int j = 0; j < mat2->cols; j++) {
+            double sum = 0;
+            __m256d resvec;
+            resvec = _mm256_set1_pd(0);
+            for (int k = 0; k < mat1->cols/16*16; k=k+16){
+                __m256d vec1;
+                __m256d vec2;
+                vec1 = _mm256_loadu_pd ((__m256d *)(mat1->data+(i*mat1->cols+k)));
+                vec2 = _mm256_loadu_pd ((__m256d *)(transpose->data+(j*transpose->cols+k)));
+                resvec = _mm256_fmadd_pd(vec1, vec2, resvec);
+                /*
+                double temp[4];
+                _mm256_storeu_pd((__m256d *) temp, resvec);
+                sum = sum + temp[0] + temp[1] + temp[2] + temp[3];
+                */
+
+                vec1 = _mm256_loadu_pd ((__m256d *)(mat1->data+(i*mat1->cols+k+4)));
+                vec2 = _mm256_loadu_pd ((__m256d *)(transpose->data+(j*transpose->cols+k+4)));
+                resvec = _mm256_fmadd_pd(vec1, vec2, resvec);
+        
+
+                vec1 = _mm256_loadu_pd ((__m256d *)(mat1->data+(i*mat1->cols+k+8)));
+                vec2 = _mm256_loadu_pd ((__m256d *)(transpose->data+(j*transpose->cols+k+8)));
+                resvec = _mm256_fmadd_pd(vec1, vec2, resvec);
+               
+
+                vec1 = _mm256_loadu_pd ((__m256d *)(mat1->data+(i*mat1->cols+k+12)));
+                vec2 = _mm256_loadu_pd ((__m256d *)(transpose->data+(j*transpose->cols+k+12)));
+                resvec = _mm256_fmadd_pd(vec1, vec2, resvec);
+                
+                
+            }
+            for (int l = mat1->cols/16*16; l<mat1->cols/4*4; l+=4) {
+                __m256d vec1;
+                __m256d vec2;
+                vec1 = _mm256_loadu_pd ((__m256d *)(mat1->data+(i*mat1->cols+l)));
+                vec2 = _mm256_loadu_pd ((__m256d *)(transpose->data+(j*transpose->cols+l)));
+                resvec = _mm256_fmadd_pd(vec1, vec2, resvec);
+                
+            }
+            double temp[4];
+            _mm256_storeu_pd((__m256d *) temp, resvec);
+            sum = sum + temp[0] + temp[1] + temp[2] + temp[3];
+            
+            for (int l = mat1->cols/4*4; l < mat1->cols; l++) {
+                sum = sum + mat1->data[i * mat1->cols + l] * mat2->data[l * mat2->cols + j];
+            }
+            
+            
+            result->data[i * mat2->cols + j] = sum;
+        }
+    }
+    return 0;
+    
+   
+    //This is kji loop order.
+    /*
+    for (i = 0; i < mat1->rows; i++) {
+        for (j = 0; j < mat2->cols; j++) {
+            double sum = 0;
+            for (k = 0; k < mat1->cols; k++)
+                sum = sum + mat1->data[i * mat1->cols + k] * mat2->data[k * mat2->cols + j];
+            result->data[i * mat2->cols + j] = sum;
+        }
+    }
+    return 0;
+    */
 }
 
 /*
@@ -185,5 +393,105 @@ int mul_matrix(matrix *result, matrix *mat1, matrix *mat2) {
  * Note that the matrix is in row-major order.
  */
 int pow_matrix(matrix *result, matrix *mat, int pow) {
+    
     // Task 1.6 TODO
+    if (pow == 0) {
+        int i, j;
+        #pragma omp parallel for collapse(2)
+        for (i=0; i<result->rows; i++) {
+            for (j=0; j<result->cols; j++) {
+                if (i==j) {
+                    result->data[i*result->cols+j] = 1;
+                }
+                else {
+                    result->data[i*result->cols+j] = 0;
+                }
+            }
+        }
+        return 0;
+
+    }
+    if (pow == 1) {
+        #pragma omp parallel for
+        for (int i=0;i<result->rows*result->cols;i++) {
+            result->data[i] = mat->data[i];
+        }
+        return 0;
+    }
+    else {
+        int i, j;
+        #pragma omp parallel for collapse(2)
+        for (i=0; i<result->rows; i++) {
+            for (j=0; j<result->cols; j++) {
+                if (i==j) {
+                    result->data[i*result->cols+j] = 1;
+                }
+                else {
+                    result->data[i*result->cols+j] = 0;
+                }
+            }
+        }
+        matrix *temp = NULL;
+        allocate_matrix(&temp, result->cols, result->rows);
+        while (pow > 0) {
+            
+            if (pow % 2 == 1) {
+                
+                mul_matrix(temp, result, mat);
+                
+                //#pragma omp parallel for
+                for (int i=0;i<result->rows*result->cols;i++) {
+                    result->data[i] = temp->data[i];
+                }
+                
+            }
+            matrix *temp2 = NULL;
+            allocate_matrix(&temp2, result->cols, result->rows);
+            mul_matrix (temp2, mat, mat);
+            /*
+            printf("%f \n", get(result, 0, 0));
+            printf("%f \n", get(result, 0, 1));
+            printf("%f \n", get(result, 1, 0));
+            printf("%f \n", get(result, 1, 1));
+            printf("%f \n", get(mat, 0, 0));
+            printf("%f \n", get(mat, 0, 1));
+            printf("%f \n", get(mat, 1, 0));
+            printf("%f \n", get(mat, 1, 1));
+            */
+            mat = temp2;
+            pow = pow/2;
+            
+        }
+        /*
+        printf("----------final--------\n");
+        printf("%f \n", get(result, 0, 0));
+        printf("%f \n", get(result, 0, 1));
+        printf("%f \n", get(result, 1, 0));
+        printf("%f \n", get(result, 1, 1));
+        printf("----------final--------\n");
+        */
+        deallocate_matrix(temp);
+        return 0;
+    }
+
+}
+
+void transpose_blocking(int rows, int cols, int blocksize, matrix *dst, matrix *src) {
+    // YOUR CODE HERE
+    #pragma omp parallel for collapse(4)
+    for (int x = 0; x < cols; x+=blocksize) {
+       for (int y = 0; y < rows; y+=blocksize){
+           for(int i = 0; i < blocksize; i++){
+               for(int j = 0; j < blocksize; j++){
+                    if((y+j>=rows) || (x+i>=cols)) {
+                        
+                    }
+                    else {
+                        dst->data[(y+j)+(x+i)*rows] = src->data[(x+i)+(y+j)*cols]; // potential issues here
+                    }
+               }
+           }
+       }
+   }
+
 }
